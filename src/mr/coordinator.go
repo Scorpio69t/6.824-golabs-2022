@@ -24,13 +24,15 @@ type MapTaskState int64
 var (
 	MapTaskStateWaiting  MapTaskState = 1
 	MapTaskStateRunning  MapTaskState = 2
-	MapTaskStateFinished MapTaskState = 3
+	MapTaskStateExpire   MapTaskState = 3
+	MapTaskStateFinished MapTaskState = 4
 )
 
 type MapTask struct {
 	MapTaskIds   []string
 	Split        string
 	MapTaskState MapTaskState
+	StartTime    int64
 }
 
 type ReduceTaskState int64
@@ -38,7 +40,8 @@ type ReduceTaskState int64
 var (
 	ReduceTaskStateWaiting  ReduceTaskState = 1
 	ReduceTaskStateRunning  ReduceTaskState = 2
-	ReduceTaskStateFinished ReduceTaskState = 3
+	ReduceTaskStateOT       MapTaskState    = 3
+	ReduceTaskStateFinished ReduceTaskState = 4
 )
 
 type ReduceTask struct {
@@ -47,6 +50,7 @@ type ReduceTask struct {
 	IntermediateFiles []string
 	OutputFile        string
 	ReduceTaskState   ReduceTaskState
+	StartTime         int64
 }
 
 // TODO: 加锁
@@ -73,11 +77,15 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	if c.CoordinatorState == CoordinatorStateMapping {
 		// TODO: 加锁
 		for _, mapTask := range c.MapTasks {
-			if mapTask.MapTaskState == MapTaskStateWaiting {
+			if mapTask.MapTaskState == MapTaskStateWaiting || mapTask.MapTaskState == MapTaskStateExpire {
 				reply.TaskId = uuid.NewString()
 				reply.TaskType = TaskTypeMap
 				reply.NReduce = int64(len(c.ReduceTasks))
 				reply.Content = []string{mapTask.Split}
+				mapTask.MapTaskIds = append(mapTask.MapTaskIds, reply.TaskId)
+				mapTask.MapTaskState = MapTaskStateRunning
+				mapTask.StartTime = time.Now().Unix()
+				break
 			}
 		}
 	}
@@ -143,6 +151,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		mapTask := MapTask{
 			Split:        file,
 			MapTaskState: MapTaskStateWaiting,
+			StartTime:    time.Now().Unix(),
 		}
 		mapTasks[i] = mapTask
 	}
@@ -159,19 +168,27 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.ReduceTasks = reduceTasks
 
 	c.server()
-	c.mapCoordinaton()
+	c.mapMoniter()
 
 	return &c
 }
 
-func (c *Coordinator) mapCoordinaton() {
+var ExpireTime int64 = 600
+
+func (c *Coordinator) mapMoniter() {
 	for {
+		rolling := false
 		for _, mapTask := range c.MapTasks {
 			if mapTask.MapTaskState != MapTaskStateFinished {
-				time.Sleep(3 * time.Second)
-				continue
+				rolling = true
+			}
+			if mapTask.MapTaskState == MapTaskStateRunning &&
+				time.Now().Unix()-mapTask.StartTime > ExpireTime {
+				mapTask.MapTaskState = MapTaskStateExpire
 			}
 		}
-		break
+		if !rolling {
+			break
+		}
 	}
 }
