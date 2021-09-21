@@ -129,7 +129,6 @@ func (c *Coordinator) MapTaskDone(args *MapTaskDoneArgs, reply *MapTaskDoneReply
 	for _, mapTask := range c.MapTasks {
 		for _, id := range mapTask.MapTaskIds {
 			if args.MapTaskId == id {
-				println("meimnaobin")
 				mapTask.MapTaskState = MapTaskStateFinished
 				for i, n := range args.IntermediateFileNames {
 					// RPC 不改变顺序的话就这样写
@@ -178,7 +177,10 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	return c.CoordinatorState == CoordinatorStateFinished
+	c.L.Lock()
+	ok := c.CoordinatorState == CoordinatorStateFinished
+	c.L.Unlock()
+	return ok
 }
 
 //
@@ -222,7 +224,7 @@ func (c *Coordinator) coordinatorMoniter() {
 	c.reduceMoniter()
 }
 
-var ExpireTime int64 = 10
+var ExpireTime int64 = 3
 
 func (c *Coordinator) mapMoniter() {
 	for {

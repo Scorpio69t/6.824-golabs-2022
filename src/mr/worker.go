@@ -83,7 +83,7 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	mapf func(string, string) []KeyValue) ([]string, bool) {
 	intermediateFileNames := make([]string, nReduce)
 	for i := 0; i < int(nReduce); i++ {
-		intermediateFileNames[i] = fmt.Sprintf("tmp/intermediate-%s-%v-%s.txt", jobId, i, mapTaskId)
+		intermediateFileNames[i] = fmt.Sprintf(".intermediate-%s-%v-%s.txt", jobId, i, mapTaskId)
 	}
 	split, err := os.Open(splitName)
 	if err != nil {
