@@ -60,8 +60,8 @@ type Coordinator struct {
 	// Your definitions here.
 	JobId            string
 	CoordinatorState CoordinatorState
-	MapTasks         []MapTask
-	ReduceTasks      []ReduceTask
+	MapTasks         []*MapTask
+	ReduceTasks      []*ReduceTask
 	OutputFileNames  []string
 	L                *sync.Mutex
 }
@@ -80,7 +80,7 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	c.L.Lock()
-	fmt.Printf("%+v", c)
+	defer c.L.Unlock()
 	if c.CoordinatorState == CoordinatorStateMapping {
 		for _, mapTask := range c.MapTasks {
 			if mapTask.MapTaskState == MapTaskStateWaiting ||
@@ -120,15 +120,16 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 		reply.TaskType = TaskTypeOff
 		return nil
 	}
-	c.L.Unlock()
 	return nil
 }
 
 func (c *Coordinator) MapTaskDone(args *MapTaskDoneArgs, reply *MapTaskDoneReply) error {
 	c.L.Lock()
+	defer c.L.Unlock()
 	for _, mapTask := range c.MapTasks {
 		for _, id := range mapTask.MapTaskIds {
 			if args.MapTaskId == id {
+				println("meimnaobin")
 				mapTask.MapTaskState = MapTaskStateFinished
 				for i, n := range args.IntermediateFileNames {
 					// RPC 不改变顺序的话就这样写
@@ -138,12 +139,12 @@ func (c *Coordinator) MapTaskDone(args *MapTaskDoneArgs, reply *MapTaskDoneReply
 			}
 		}
 	}
-	c.L.Unlock()
 	return fmt.Errorf("who the fuck are you?")
 }
 
 func (c *Coordinator) ReduceTaskDone(args *ReduceTaskDoneArgs, reply *ReduceTaskDoneReply) error {
 	c.L.Lock()
+	defer c.L.Unlock()
 	for _, reduceTask := range c.ReduceTasks {
 		for _, id := range reduceTask.ReduceTaskIds {
 			if args.ReduceTaskId == id {
@@ -153,7 +154,6 @@ func (c *Coordinator) ReduceTaskDone(args *ReduceTaskDoneArgs, reply *ReduceTask
 			}
 		}
 	}
-	c.L.Unlock()
 	return fmt.Errorf("who the fuck are you?")
 }
 
@@ -191,9 +191,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.JobId = uuid.NewString()
 	c.L = new(sync.Mutex)
 	// Your code here.
-	mapTasks := make([]MapTask, len(files))
+	mapTasks := make([]*MapTask, len(files))
 	for i, file := range files {
-		mapTask := MapTask{
+		mapTask := &MapTask{
 			Split:        file,
 			MapTaskState: MapTaskStateWaiting,
 			StartTime:    time.Now().Unix(),
@@ -202,9 +202,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	}
 	c.MapTasks = mapTasks
 
-	reduceTasks := make([]ReduceTask, nReduce)
+	reduceTasks := make([]*ReduceTask, nReduce)
 	for i := 0; i < nReduce; i++ {
-		reduceTask := ReduceTask{
+		reduceTask := &ReduceTask{
 			ReduceTaskIndex: int64(i),
 			ReduceTaskState: ReduceTaskStateWaiting,
 		}
@@ -222,7 +222,7 @@ func (c *Coordinator) coordinatorMoniter() {
 	c.reduceMoniter()
 }
 
-var ExpireTime int64 = 600
+var ExpireTime int64 = 10
 
 func (c *Coordinator) mapMoniter() {
 	for {
@@ -237,11 +237,15 @@ func (c *Coordinator) mapMoniter() {
 				mapTask.MapTaskState = MapTaskStateExpire
 			}
 		}
+		c.L.Unlock()
 		if !rolling {
+			fmt.Printf("mapMonitor: map finish.\n")
+			c.L.Lock()
 			c.CoordinatorState = CoordinatorStateReducing
+			c.L.Unlock()
 			break
 		}
-		c.L.Unlock()
+		fmt.Printf("mapMonitor: map still running.\n")
 		time.Sleep(10 * time.Second)
 	}
 }
@@ -259,11 +263,13 @@ func (c *Coordinator) reduceMoniter() {
 				reduceTask.ReduceTaskState = ReduceTaskStateExpire
 			}
 		}
+		c.L.Unlock()
 		if !rolling {
+			c.L.Lock()
 			c.CoordinatorState = CoordinatorStateFinished
+			c.L.Unlock()
 			break
 		}
-		c.L.Unlock()
 		time.Sleep(10 * time.Second)
 	}
 }

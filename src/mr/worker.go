@@ -55,7 +55,8 @@ func Worker(mapf func(string, string) []KeyValue,
 				fmt.Printf("mapf fucked.")
 				break
 			}
-			_, ok = CallMapTaskDone(intermediateFileNames)
+			fmt.Printf("doMap done. Calling MapTaskDone.")
+			_, ok = CallMapTaskDone(reply.TaskId, intermediateFileNames)
 			if !ok {
 				fmt.Printf("CallMapTaskDone fucked.")
 			}
@@ -65,7 +66,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				fmt.Printf("reducef fucked.")
 				break
 			}
-			_, ok = CallReduceTaskDone(outputFileName)
+			_, ok = CallReduceTaskDone(reply.TaskId, outputFileName)
 			if !ok {
 				fmt.Printf("CallReduceTaskDone fucked.")
 			}
@@ -82,8 +83,7 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	mapf func(string, string) []KeyValue) ([]string, bool) {
 	intermediateFileNames := make([]string, nReduce)
 	for i := 0; i < int(nReduce); i++ {
-		intermediateFileNames = append(intermediateFileNames,
-			fmt.Sprintf("intermediate-%s-%v-%s", jobId, i, mapTaskId))
+		intermediateFileNames[i] = fmt.Sprintf("tmp/intermediate-%s-%v-%s.txt", jobId, i, mapTaskId)
 	}
 	split, err := os.Open(splitName)
 	if err != nil {
@@ -96,6 +96,8 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	split.Close()
 	kva := mapf(splitName, string(content))
 
+	fmt.Println("mapf done.")
+
 	intermediateFiles := make([]*os.File, 0)
 	for _, fileName := range intermediateFileNames {
 		file, err := os.Create(fileName)
@@ -107,7 +109,7 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	}
 
 	for _, kv := range kva {
-		fmt.Fprintf(intermediateFiles[ihash(kv.Key)], "%v %v\n", kv.Key, kv.Value)
+		fmt.Fprintf(intermediateFiles[ihash(kv.Key)%int(nReduce)], "%v %v\n", kv.Key, kv.Value)
 	}
 
 	for _, file := range intermediateFiles {
@@ -131,6 +133,7 @@ func doReduce(jobId string, index int64, intermidiateFileNames []string,
 		}
 		inintermidiateFile.Close()
 		lines := strings.Split(string(content), "\n")
+		lines = lines[:len(lines)-1]
 		for _, l := range lines {
 			kv := strings.Split(l, " ")
 			if _, ok := kvs[kv[0]]; ok {
@@ -177,8 +180,9 @@ func CallGetTask() (*GetTaskReply, bool) {
 	return reply, true
 }
 
-func CallMapTaskDone(intermediateFileNames []string) (*MapTaskDoneReply, bool) {
+func CallMapTaskDone(mapTaskId string, intermediateFileNames []string) (*MapTaskDoneReply, bool) {
 	args := &MapTaskDoneArgs{}
+	args.MapTaskId = mapTaskId
 	args.IntermediateFileNames = intermediateFileNames
 	reply := &MapTaskDoneReply{}
 	ok := call("Coordinator.MapTaskDone", &args, &reply)
@@ -188,8 +192,9 @@ func CallMapTaskDone(intermediateFileNames []string) (*MapTaskDoneReply, bool) {
 	return reply, true
 }
 
-func CallReduceTaskDone(outputFileName string) (*ReduceTaskDoneReply, bool) {
+func CallReduceTaskDone(reduceTaskId string, outputFileName string) (*ReduceTaskDoneReply, bool) {
 	args := &ReduceTaskDoneArgs{}
+	args.ReduceTaskId = reduceTaskId
 	args.OutputFileName = outputFileName
 	reply := &ReduceTaskDoneReply{}
 	ok := call("Coordinator.ReduceTaskDone", &args, &reply)
