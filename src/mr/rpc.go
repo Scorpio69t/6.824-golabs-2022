@@ -37,18 +37,28 @@ var (
 )
 
 type GetTaskReply struct {
-	TaskType TaskType
-	TaskId   string
-	Content  []string
-	NReduce  int64
+	JobId           string
+	TaskType        TaskType
+	TaskId          string
+	Content         []string
+	NReduce         int64
+	ReduceTaskIndex int64
 }
 
 type MapTaskDoneArgs struct {
 	MapTaskId             string
-	intermediateFileNames []string
+	IntermediateFileNames []string
 }
 
 type MapTaskDoneReply struct {
+}
+
+type ReduceTaskDoneArgs struct {
+	ReduceTaskId   string
+	OutputFileName string
+}
+
+type ReduceTaskDoneReply struct {
 }
 
 // Add your RPC definitions here.

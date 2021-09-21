@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -41,43 +42,46 @@ func Worker(mapf func(string, string) []KeyValue,
 	for {
 		reply, ok := CallGetTask()
 		if !ok {
-			fmt.Printf("CallGetWork fucked. Worker gone.")
+			fmt.Printf("CallGetWork fucked.")
 			return
 		}
 		switch reply.TaskType {
 		case TaskTypeOff:
-			fmt.Printf("Work done, Worker gone.")
+			fmt.Printf("Work done.")
 			return
 		case TaskTypeMap:
-			intermediateFileNames, ok := doMap(reply.TaskId, reply.Content[0], reply.NReduce, mapf)
+			intermediateFileNames, ok := doMap(reply.JobId, reply.TaskId, reply.Content[0], reply.NReduce, mapf)
 			if !ok {
-				fmt.Printf("mapf fucked. Worker gone.")
-				return
+				fmt.Printf("mapf fucked.")
 			}
 			_, ok = CallMapTaskDone(intermediateFileNames)
 			if !ok {
-				fmt.Printf("CallMapTaskDone fucked. Worker gone.")
-				return
+				fmt.Printf("CallMapTaskDone fucked.")
 			}
 		case TaskTypeReduce:
-			// TODO
-			// 遍历所有的intermediateFile，reduce属于自己的key
+			outputFileName, ok := doReduce(reply.JobId, reply.ReduceTaskIndex, reply.Content, reducef)
+			if !ok {
+				fmt.Printf("reducef fucked.")
+			}
+			_, ok = CallReduceTaskDone(outputFileName)
+			if !ok {
+				fmt.Printf("CallReduceTaskDone fucked.")
+			}
 		case TaskTypeWait:
 			fmt.Printf("No work to do. Worker waits.")
 			time.Sleep(10 * time.Second)
 		default:
-			fmt.Printf("WorkType wrong. Worker gone.")
-			return
+			fmt.Printf("WorkType wrong.")
 		}
 	}
 }
 
-func doMap(mapTaskId string, splitName string, nReduce int64,
+func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	mapf func(string, string) []KeyValue) ([]string, bool) {
 	intermediateFileNames := make([]string, nReduce)
 	for i := 0; i < int(nReduce); i++ {
 		intermediateFileNames = append(intermediateFileNames,
-			fmt.Sprintf("tmp/intermediate-%s-%v", mapTaskId, i))
+			fmt.Sprintf("tmp-%s/intermediate-%v-%s", jobId, i, mapTaskId))
 	}
 	split, err := os.Open(splitName)
 	if err != nil {
@@ -101,15 +105,67 @@ func doMap(mapTaskId string, splitName string, nReduce int64,
 	}
 
 	for _, kv := range kva {
-		fmt.Fprintf(intermediateFiles[ihash(kv.Key)], "%v %v\n", kv.Key, kv.Value)
+		fmt.Fprintf(intermediateFiles[ihash(kv.Key)], "%v,%v\n", kv.Key, kv.Value)
 	}
 
 	for _, file := range intermediateFiles {
 		file.Close()
 	}
 
-	// TODO: map的同时shuffle
 	return intermediateFileNames, true
+}
+
+func doReduce(jobId string, index int64, intermidiateFileNames []string,
+	reducef func(string, []string) string) (string, bool) {
+	kvs := make(map[string][]string, 0)
+	for _, inintermidiateFileName := range intermidiateFileNames {
+		inintermidiateFile, err := os.Open(inintermidiateFileName)
+		if err != nil {
+			log.Fatalf("cannot open %v", inintermidiateFileName)
+		}
+		content, err := ioutil.ReadAll(inintermidiateFile)
+		if err != nil {
+			log.Fatalf("cannot read %v", inintermidiateFileName)
+		}
+		inintermidiateFile.Close()
+		lines := strings.Split(string(content), "\n")
+		for _, l := range lines {
+			kv := strings.Split(l, ",")
+			if vs, ok := kvs[kv[0]]; ok {
+				vs = append(vs, kv[1])
+			} else {
+				kvs[kv[0]] = make([]string, 0)
+				kvs[kv[0]] = append(kvs[kv[0]], kv[1])
+			}
+		}
+	}
+	outputFileName := fmt.Sprintf("mr-out-%v", index)
+	if outputExists(outputFileName) {
+		fmt.Printf("Output already exist.")
+		return "", false
+	}
+	outputFile, err := os.Create(outputFileName)
+	if err != nil {
+		fmt.Printf("%+v", err)
+		return "", false
+	}
+	for k, vs := range kvs {
+		o := reducef(k, vs)
+		fmt.Fprintf(outputFile, "%v,%v\n", k, o)
+	}
+	outputFile.Close()
+	return outputFileName, true
+}
+
+func outputExists(path string) bool {
+	_, err := os.Stat(path) //os.Stat获取文件信息
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
 }
 
 func CallGetTask() (*GetTaskReply, bool) {
@@ -124,9 +180,20 @@ func CallGetTask() (*GetTaskReply, bool) {
 
 func CallMapTaskDone(intermediateFileNames []string) (*MapTaskDoneReply, bool) {
 	args := &MapTaskDoneArgs{}
-	args.intermediateFileNames = intermediateFileNames
+	args.IntermediateFileNames = intermediateFileNames
 	reply := &MapTaskDoneReply{}
 	ok := call("Coordinator.MapTaskDone", &args, &reply)
+	if !ok {
+		return nil, false
+	}
+	return reply, true
+}
+
+func CallReduceTaskDone(outputFileName string) (*ReduceTaskDoneReply, bool) {
+	args := &ReduceTaskDoneArgs{}
+	args.OutputFileName = outputFileName
+	reply := &ReduceTaskDoneReply{}
+	ok := call("Coordinator.ReduceTaskDone", &args, &reply)
 	if !ok {
 		return nil, false
 	}

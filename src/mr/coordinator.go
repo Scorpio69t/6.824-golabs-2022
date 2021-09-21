@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ type CoordinatorState int64
 var (
 	CoordinatorStateMapping  CoordinatorState = 1
 	CoordinatorStateReducing CoordinatorState = 2
+	CoordinatorStateFinished CoordinatorState = 3
 )
 
 type MapTaskState int64
@@ -40,13 +42,13 @@ type ReduceTaskState int64
 var (
 	ReduceTaskStateWaiting  ReduceTaskState = 1
 	ReduceTaskStateRunning  ReduceTaskState = 2
-	ReduceTaskStateOT       MapTaskState    = 3
+	ReduceTaskStateExpire   ReduceTaskState = 3
 	ReduceTaskStateFinished ReduceTaskState = 4
 )
 
 type ReduceTask struct {
 	ReduceTaskIds     []string
-	ReduceTaskIndex   int
+	ReduceTaskIndex   int64
 	IntermediateFiles []string
 	OutputFile        string
 	ReduceTaskState   ReduceTaskState
@@ -56,9 +58,12 @@ type ReduceTask struct {
 // TODO: 加锁
 type Coordinator struct {
 	// Your definitions here.
+	JobId            string
 	CoordinatorState CoordinatorState
 	MapTasks         []MapTask
 	ReduceTasks      []ReduceTask
+	OutputFileNames  []string
+	L                *sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -74,10 +79,12 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
+	c.L.Lock()
 	if c.CoordinatorState == CoordinatorStateMapping {
-		// TODO: 加锁
 		for _, mapTask := range c.MapTasks {
-			if mapTask.MapTaskState == MapTaskStateWaiting || mapTask.MapTaskState == MapTaskStateExpire {
+			if mapTask.MapTaskState == MapTaskStateWaiting ||
+				mapTask.MapTaskState == MapTaskStateExpire {
+				reply.JobId = c.JobId
 				reply.TaskId = uuid.NewString()
 				reply.TaskType = TaskTypeMap
 				reply.NReduce = int64(len(c.ReduceTasks))
@@ -85,20 +92,44 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 				mapTask.MapTaskIds = append(mapTask.MapTaskIds, reply.TaskId)
 				mapTask.MapTaskState = MapTaskStateRunning
 				mapTask.StartTime = time.Now().Unix()
-				break
+				return nil
 			}
 		}
+		reply.TaskType = TaskTypeWait
+		return nil
+	} else if c.CoordinatorState == CoordinatorStateReducing {
+		for _, reduceTask := range c.ReduceTasks {
+			if reduceTask.ReduceTaskState == ReduceTaskStateWaiting ||
+				reduceTask.ReduceTaskState == ReduceTaskStateExpire {
+				reply.JobId = c.JobId
+				reply.TaskId = uuid.NewString()
+				reply.TaskType = TaskTypeReduce
+				reply.NReduce = int64(len(c.ReduceTasks))
+				reply.Content = reduceTask.IntermediateFiles
+				reply.ReduceTaskIndex = reduceTask.ReduceTaskIndex
+				reduceTask.ReduceTaskIds = append(reduceTask.ReduceTaskIds, reply.TaskId)
+				reduceTask.ReduceTaskState = ReduceTaskStateRunning
+				reduceTask.StartTime = time.Now().Unix()
+				return nil
+			}
+		}
+		reply.TaskType = TaskTypeWait
+		return nil
+	} else if c.CoordinatorState == CoordinatorStateFinished {
+		reply.TaskType = TaskTypeOff
+		return nil
 	}
+	c.L.Unlock()
 	return nil
 }
 
 func (c *Coordinator) MapTaskDone(args *MapTaskDoneArgs, reply *MapTaskDoneReply) error {
-	// 加锁
+	c.L.Lock()
 	for _, mapTask := range c.MapTasks {
 		for _, id := range mapTask.MapTaskIds {
 			if args.MapTaskId == id {
 				mapTask.MapTaskState = MapTaskStateFinished
-				for i, n := range args.intermediateFileNames {
+				for i, n := range args.IntermediateFileNames {
 					// RPC 不改变顺序的话就这样写
 					c.ReduceTasks[i].IntermediateFiles = append(c.ReduceTasks[i].IntermediateFiles, n)
 				}
@@ -106,6 +137,22 @@ func (c *Coordinator) MapTaskDone(args *MapTaskDoneArgs, reply *MapTaskDoneReply
 			}
 		}
 	}
+	c.L.Unlock()
+	return fmt.Errorf("Who the fuck are you?")
+}
+
+func (c *Coordinator) ReduceTaskDone(args *ReduceTaskDoneArgs, reply *ReduceTaskDoneReply) error {
+	c.L.Lock()
+	for _, reduceTask := range c.ReduceTasks {
+		for _, id := range reduceTask.ReduceTaskIds {
+			if args.ReduceTaskId == id {
+				reduceTask.ReduceTaskState = ReduceTaskStateFinished
+				c.OutputFileNames = append(c.OutputFileNames, args.OutputFileName)
+				return nil
+			}
+		}
+	}
+	c.L.Unlock()
 	return fmt.Errorf("Who the fuck are you?")
 }
 
@@ -130,11 +177,10 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
-
-	// Your code here.
-
-	return ret
+	if c.CoordinatorState == CoordinatorStateFinished {
+		return true
+	}
+	return false
 }
 
 //
@@ -144,7 +190,8 @@ func (c *Coordinator) Done() bool {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
-
+	c.JobId = uuid.NewString()
+	c.L = new(sync.Mutex)
 	// Your code here.
 	mapTasks := make([]MapTask, len(files))
 	for i, file := range files {
@@ -160,7 +207,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	reduceTasks := make([]ReduceTask, nReduce)
 	for i := 0; i < nReduce; i++ {
 		reduceTask := ReduceTask{
-			ReduceTaskIndex: i,
+			ReduceTaskIndex: int64(i),
 			ReduceTaskState: ReduceTaskStateWaiting,
 		}
 		reduceTasks[i] = reduceTask
@@ -168,9 +215,13 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.ReduceTasks = reduceTasks
 
 	c.server()
-	c.mapMoniter()
-
+	go c.coordinatorMoniter()
 	return &c
+}
+
+func (c *Coordinator) coordinatorMoniter() {
+	c.mapMoniter()
+	c.reduceMoniter()
 }
 
 var ExpireTime int64 = 600
@@ -178,6 +229,7 @@ var ExpireTime int64 = 600
 func (c *Coordinator) mapMoniter() {
 	for {
 		rolling := false
+		c.L.Lock()
 		for _, mapTask := range c.MapTasks {
 			if mapTask.MapTaskState != MapTaskStateFinished {
 				rolling = true
@@ -188,7 +240,32 @@ func (c *Coordinator) mapMoniter() {
 			}
 		}
 		if !rolling {
+			c.CoordinatorState = CoordinatorStateReducing
 			break
 		}
+		c.L.Unlock()
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (c *Coordinator) reduceMoniter() {
+	for {
+		rolling := false
+		c.L.Lock()
+		for _, reduceTask := range c.ReduceTasks {
+			if reduceTask.ReduceTaskState != ReduceTaskStateFinished {
+				rolling = true
+			}
+			if reduceTask.ReduceTaskState == ReduceTaskStateRunning &&
+				time.Now().Unix()-reduceTask.StartTime > ExpireTime {
+				reduceTask.ReduceTaskState = ReduceTaskStateExpire
+			}
+		}
+		if !rolling {
+			c.CoordinatorState = CoordinatorStateFinished
+			break
+		}
+		c.L.Unlock()
+		time.Sleep(10 * time.Second)
 	}
 }
