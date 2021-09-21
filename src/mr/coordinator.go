@@ -131,7 +131,6 @@ func (c *Coordinator) MapTaskDone(args *MapTaskDoneArgs, reply *MapTaskDoneReply
 			if args.MapTaskId == id {
 				mapTask.MapTaskState = MapTaskStateFinished
 				for i, n := range args.IntermediateFileNames {
-					// RPC 不改变顺序的话就这样写
 					c.ReduceTasks[i].IntermediateFiles = append(c.ReduceTasks[i].IntermediateFiles, n)
 				}
 				return nil
@@ -192,7 +191,6 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 	c.JobId = uuid.NewString()
 	c.L = new(sync.Mutex)
-	// Your code here.
 	mapTasks := make([]*MapTask, len(files))
 	for i, file := range files {
 		mapTask := &MapTask{
@@ -267,11 +265,13 @@ func (c *Coordinator) reduceMoniter() {
 		}
 		c.L.Unlock()
 		if !rolling {
+			fmt.Printf("reduceMonitor: reduce finish.\n")
 			c.L.Lock()
 			c.CoordinatorState = CoordinatorStateFinished
 			c.L.Unlock()
 			break
 		}
+		fmt.Printf("reduceMonitor: reduce still running.\n")
 		time.Sleep(10 * time.Second)
 	}
 }

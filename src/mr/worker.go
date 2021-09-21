@@ -55,23 +55,24 @@ func Worker(mapf func(string, string) []KeyValue,
 				fmt.Printf("mapf fucked.")
 				break
 			}
-			fmt.Printf("doMap done. Calling MapTaskDone.")
+			fmt.Printf("doMap done. Calling MapTaskDone.\n")
 			_, ok = CallMapTaskDone(reply.TaskId, intermediateFileNames)
 			if !ok {
 				fmt.Printf("CallMapTaskDone fucked.")
 			}
 		case TaskTypeReduce:
-			outputFileName, ok := doReduce(reply.JobId, reply.ReduceTaskIndex, reply.Content, reducef)
+			outputFileName, ok := doReduce(reply.JobId, reply.TaskId, reply.ReduceTaskIndex, reply.Content, reducef)
 			if !ok {
-				fmt.Printf("reducef fucked.")
+				fmt.Printf("reducef fucked.\n")
 				break
 			}
+			fmt.Printf("doReduce done. Calling ReduceTaskDone.\n")
 			_, ok = CallReduceTaskDone(reply.TaskId, outputFileName)
 			if !ok {
 				fmt.Printf("CallReduceTaskDone fucked.")
 			}
 		case TaskTypeWait:
-			fmt.Printf("No work to do. Worker waits.")
+			fmt.Printf("No work to do. Worker waits.\n")
 			time.Sleep(10 * time.Second)
 		default:
 			fmt.Printf("WorkType wrong.")
@@ -119,7 +120,7 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	return intermediateFileNames, true
 }
 
-func doReduce(jobId string, index int64, intermidiateFileNames []string,
+func doReduce(jobId string, reduceTaskId string, index int64, intermidiateFileNames []string,
 	reducef func(string, []string) string) (string, bool) {
 	kvs := make(map[string][]string)
 	for _, inintermidiateFileName := range intermidiateFileNames {
@@ -144,30 +145,23 @@ func doReduce(jobId string, index int64, intermidiateFileNames []string,
 			}
 		}
 	}
-	outputFileName := fmt.Sprintf("mr-out-%v", index)
-	if outputExists(outputFileName) {
-		fmt.Printf("Output already exist.")
-		return "", false
+
+	output := ""
+	for k, vs := range kvs {
+		o := reducef(k, vs)
+		output = fmt.Sprintf("%s%v %v\n", output, k, o)
 	}
+
+	outputFileName := fmt.Sprintf("mr-out-%v.%s.tmp", index, reduceTaskId)
 	outputFile, err := os.Create(outputFileName)
 	if err != nil {
 		fmt.Printf("%+v", err)
 		return "", false
 	}
-	for k, vs := range kvs {
-		o := reducef(k, vs)
-		fmt.Fprintf(outputFile, "%v %v\n", k, o)
-	}
+	fmt.Fprintf(outputFile, "%s", output)
 	outputFile.Close()
+	os.Rename(outputFileName, fmt.Sprintf("mr-out-%v", index))
 	return outputFileName, true
-}
-
-func outputExists(path string) bool {
-	_, err := os.Stat(path) //os.Stat获取文件信息
-	if err != nil {
-		return os.IsExist(err)
-	}
-	return true
 }
 
 func CallGetTask() (*GetTaskReply, bool) {
