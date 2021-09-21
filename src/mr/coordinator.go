@@ -80,6 +80,7 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	c.L.Lock()
+	fmt.Printf("%+v", c)
 	if c.CoordinatorState == CoordinatorStateMapping {
 		for _, mapTask := range c.MapTasks {
 			if mapTask.MapTaskState == MapTaskStateWaiting ||
@@ -138,7 +139,7 @@ func (c *Coordinator) MapTaskDone(args *MapTaskDoneArgs, reply *MapTaskDoneReply
 		}
 	}
 	c.L.Unlock()
-	return fmt.Errorf("Who the fuck are you?")
+	return fmt.Errorf("who the fuck are you?")
 }
 
 func (c *Coordinator) ReduceTaskDone(args *ReduceTaskDoneArgs, reply *ReduceTaskDoneReply) error {
@@ -153,7 +154,7 @@ func (c *Coordinator) ReduceTaskDone(args *ReduceTaskDoneArgs, reply *ReduceTask
 		}
 	}
 	c.L.Unlock()
-	return fmt.Errorf("Who the fuck are you?")
+	return fmt.Errorf("who the fuck are you?")
 }
 
 //
@@ -177,10 +178,7 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	if c.CoordinatorState == CoordinatorStateFinished {
-		return true
-	}
-	return false
+	return c.CoordinatorState == CoordinatorStateFinished
 }
 
 //
@@ -213,7 +211,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		reduceTasks[i] = reduceTask
 	}
 	c.ReduceTasks = reduceTasks
-
+	c.CoordinatorState = CoordinatorStateMapping
 	c.server()
 	go c.coordinatorMoniter()
 	return &c

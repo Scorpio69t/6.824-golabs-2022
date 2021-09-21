@@ -53,6 +53,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			intermediateFileNames, ok := doMap(reply.JobId, reply.TaskId, reply.Content[0], reply.NReduce, mapf)
 			if !ok {
 				fmt.Printf("mapf fucked.")
+				break
 			}
 			_, ok = CallMapTaskDone(intermediateFileNames)
 			if !ok {
@@ -62,6 +63,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			outputFileName, ok := doReduce(reply.JobId, reply.ReduceTaskIndex, reply.Content, reducef)
 			if !ok {
 				fmt.Printf("reducef fucked.")
+				break
 			}
 			_, ok = CallReduceTaskDone(outputFileName)
 			if !ok {
@@ -81,7 +83,7 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	intermediateFileNames := make([]string, nReduce)
 	for i := 0; i < int(nReduce); i++ {
 		intermediateFileNames = append(intermediateFileNames,
-			fmt.Sprintf("tmp-%s/intermediate-%v-%s", jobId, i, mapTaskId))
+			fmt.Sprintf("intermediate-%s-%v-%s", jobId, i, mapTaskId))
 	}
 	split, err := os.Open(splitName)
 	if err != nil {
@@ -105,7 +107,7 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	}
 
 	for _, kv := range kva {
-		fmt.Fprintf(intermediateFiles[ihash(kv.Key)], "%v,%v\n", kv.Key, kv.Value)
+		fmt.Fprintf(intermediateFiles[ihash(kv.Key)], "%v %v\n", kv.Key, kv.Value)
 	}
 
 	for _, file := range intermediateFiles {
@@ -117,7 +119,7 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 
 func doReduce(jobId string, index int64, intermidiateFileNames []string,
 	reducef func(string, []string) string) (string, bool) {
-	kvs := make(map[string][]string, 0)
+	kvs := make(map[string][]string)
 	for _, inintermidiateFileName := range intermidiateFileNames {
 		inintermidiateFile, err := os.Open(inintermidiateFileName)
 		if err != nil {
@@ -130,9 +132,9 @@ func doReduce(jobId string, index int64, intermidiateFileNames []string,
 		inintermidiateFile.Close()
 		lines := strings.Split(string(content), "\n")
 		for _, l := range lines {
-			kv := strings.Split(l, ",")
-			if vs, ok := kvs[kv[0]]; ok {
-				vs = append(vs, kv[1])
+			kv := strings.Split(l, " ")
+			if _, ok := kvs[kv[0]]; ok {
+				kvs[kv[0]] = append(kvs[kv[0]], kv[1])
 			} else {
 				kvs[kv[0]] = make([]string, 0)
 				kvs[kv[0]] = append(kvs[kv[0]], kv[1])
@@ -151,7 +153,7 @@ func doReduce(jobId string, index int64, intermidiateFileNames []string,
 	}
 	for k, vs := range kvs {
 		o := reducef(k, vs)
-		fmt.Fprintf(outputFile, "%v,%v\n", k, o)
+		fmt.Fprintf(outputFile, "%v %v\n", k, o)
 	}
 	outputFile.Close()
 	return outputFileName, true
@@ -160,10 +162,7 @@ func doReduce(jobId string, index int64, intermidiateFileNames []string,
 func outputExists(path string) bool {
 	_, err := os.Stat(path) //os.Stat获取文件信息
 	if err != nil {
-		if os.IsExist(err) {
-			return true
-		}
-		return false
+		return os.IsExist(err)
 	}
 	return true
 }
