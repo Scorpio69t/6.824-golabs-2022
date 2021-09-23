@@ -55,27 +55,13 @@ type ReduceTask struct {
 	StartTime         int64
 }
 
-// TODO: 加锁
 type Coordinator struct {
-	// Your definitions here.
 	JobId            string
 	CoordinatorState CoordinatorState
 	MapTasks         []*MapTask
 	ReduceTasks      []*ReduceTask
 	OutputFileNames  []string
 	L                *sync.Mutex
-}
-
-// Your code here -- RPC handlers for the worker to call.
-
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
 }
 
 func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
@@ -105,7 +91,6 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 				reply.JobId = c.JobId
 				reply.TaskId = uuid.NewString()
 				reply.TaskType = TaskTypeReduce
-				reply.NReduce = int64(len(c.ReduceTasks))
 				reply.Content = reduceTask.IntermediateFiles
 				reply.ReduceTaskIndex = reduceTask.ReduceTaskIndex
 				reduceTask.ReduceTaskIds = append(reduceTask.ReduceTaskIds, reply.TaskId)
