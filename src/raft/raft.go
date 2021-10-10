@@ -20,7 +20,6 @@ package raft
 import (
 	//	"bytes"
 
-	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -302,6 +301,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
+	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		rf.active = true
+		reply.Success = false
+		reply.Term = rf.term
+		return
+	}
+
 	for i := 0; i < len(args.Entries); i++ {
 		rf.log[args.PrevLogIndex+1+i] = args.Entries[i]
 	}
@@ -336,7 +342,6 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		}
 	}
 	if i == 0 {
-		fmt.Printf("server %v fucked\n", server)
 		return
 	}
 
@@ -407,7 +412,7 @@ func (rf *Raft) killed() bool {
 }
 
 var (
-	ElectionTimeoutBase float32 = 1000
+	ElectionTimeoutBase float32 = 600
 	HeartbeatTimeout            = 350
 )
 
@@ -426,14 +431,13 @@ func (rf *Raft) ticker() {
 			rf.mu.Lock()
 
 			if rf.hasReplies+1 < len(rf.peers)-(len(rf.peers)-1)/2 {
-				fmt.Printf("Fuck! rf.hasReplies: %v\n", rf.hasReplies)
 				rf.role = Follower
 			}
 			rf.mu.Unlock()
 			continue
 		}
 		rf.mu.Unlock()
-		count := ElectionTimeoutBase * rand.Float32()
+		count := ElectionTimeoutBase + ElectionTimeoutBase*rand.Float32()
 		for count > 0 {
 			rf.mu.Lock()
 			if rf.active {
@@ -556,7 +560,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-	rf.active = false
 	rf.voteFor = -1
 	rf.role = Follower
 	rf.log = make([]LogEntry, 1)
