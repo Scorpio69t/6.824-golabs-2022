@@ -457,8 +457,8 @@ func (rf *Raft) killed() bool {
 }
 
 var (
-	ElectionTimeoutBase float32 = 700
-	HeartbeatTimeout            = 150
+	ElectionTimeoutBase float32 = 500
+	HeartbeatTimeout            = 50
 )
 
 // The ticker go routine starts a new election if this peer hasn't received
