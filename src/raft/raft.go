@@ -265,12 +265,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs,
 	reply *RequestVoteReply, state *sendAllRequestVoteState) {
-	rf.mu.Lock()
-	args.Term = rf.term
-	args.CandidateId = rf.me
-	args.LastLogIndex = rf.lastLogIndex
-	args.LastLogTerm = rf.lastLogTerm
-	rf.mu.Unlock()
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	if ok {
 		state.mu.Lock()
@@ -453,7 +447,8 @@ func (rf *Raft) killed() bool {
 }
 
 var (
-	ElectionTimeoutBase float32 = 500
+	ElectionTimeoutBase float32 = 400
+	ElectionTimeoutRand float32 = 300
 	HeartbeatTimeout            = 50
 )
 
@@ -471,7 +466,7 @@ func (rf *Raft) ticker() {
 			continue
 		}
 		rf.mu.Unlock()
-		count := ElectionTimeoutBase + ElectionTimeoutBase*rand.Float32()
+		count := ElectionTimeoutBase + ElectionTimeoutRand*rand.Float32()
 		for count > 0 {
 			rf.mu.Lock()
 			if rf.active {
@@ -565,13 +560,19 @@ func (rf *Raft) sendAllRequestVote() {
 		count: 1,
 	}
 	rf.mu.Lock()
+	args := &RequestVoteArgs{
+		Term:         rf.term,
+		CandidateId:  rf.me,
+		LastLogIndex: rf.lastLogIndex,
+		LastLogTerm:  rf.lastLogTerm,
+	}
 	state.replies = make([]bool, len(rf.peers))
 	electionTerm := rf.term
 	for server := 0; server < len(state.replies); server++ {
 		if server == rf.me {
 			continue
 		}
-		go rf.sendRequestVote(server, &RequestVoteArgs{}, &RequestVoteReply{}, state)
+		go rf.sendRequestVote(server, args, &RequestVoteReply{}, state)
 	}
 	rf.mu.Unlock()
 
@@ -604,7 +605,7 @@ func (rf *Raft) sendAllRequestVote() {
 				continue
 			}
 			if !state.replies[server] {
-				go rf.sendRequestVote(server, &RequestVoteArgs{}, &RequestVoteReply{}, state)
+				go rf.sendRequestVote(server, args, &RequestVoteReply{}, state)
 			}
 		}
 		state.mu.Unlock()
