@@ -103,18 +103,16 @@ type LogEntry struct {
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	var term int
 	var isleader bool
-	// Your code here (2A).
-	rf.mu.Lock()
 	term = rf.term
 	if rf.role == Leader {
 		isleader = true
 	} else {
 		isleader = false
 	}
-	rf.mu.Unlock()
 	return term, isleader
 }
 
@@ -363,13 +361,11 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	if ok {
 		rf.mu.Lock()
 		rf.replies++
-		rf.mu.Unlock()
+		defer rf.mu.Unlock()
 	} else {
 		return
 	}
 
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
 	if rf.role == Leader {
 		if !reply.Success {
 			if reply.Term > rf.term {
@@ -503,10 +499,10 @@ func (rf *Raft) leaderRoutine() {
 	go rf.sendHeartbeats()
 	time.Sleep(time.Duration(HeartbeatTimeout) * time.Millisecond)
 	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if rf.replies+1 < len(rf.peers)-(len(rf.peers)-1)/2 {
 		rf.active = true
 		rf.role = Follower
-		rf.mu.Unlock()
 		return
 	}
 	tmp := make([]int, len(rf.matchIndex))
@@ -531,7 +527,6 @@ func (rf *Raft) leaderRoutine() {
 		}
 		rf.lastApplied = rf.commitIndex
 	}
-	rf.mu.Unlock()
 }
 
 func (rf *Raft) sendHeartbeats() {
@@ -587,6 +582,7 @@ func (rf *Raft) sendAllRequestVote() {
 			rf.mu.Unlock()
 			break
 		}
+
 		state.mu.Lock()
 		if state.quit {
 			rf.role = Follower
@@ -602,6 +598,7 @@ func (rf *Raft) sendAllRequestVote() {
 			rf.leaderInit()
 			return
 		}
+
 		for server := 0; server < len(state.replies); server++ {
 			if server == rf.me {
 				continue
