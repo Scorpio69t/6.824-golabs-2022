@@ -360,7 +360,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if current < rf.commitIndex {
 		for i := current + 1; i <= rf.commitIndex; i++ {
 			log.Printf("%v | AppendEntries | apply command of index %v, command %v\n", rf.me, i, rf.log[i].Command)
-			// fmt.Printf("me:%v, i:%v, apply command:%v\n", rf.me, i, rf.log[i].Command)
 			rf.applyCh <- ApplyMsg{
 				CommandValid: true,
 				Command:      rf.log[i].Command,
@@ -499,7 +498,6 @@ func (rf *Raft) ticker() {
 				rf.mu.Unlock()
 				break
 			}
-			// fmt.Printf("me:%v, counting %v!\n", rf.me, count-10)
 			rf.mu.Unlock()
 			count -= 10
 			time.Sleep(10 * time.Millisecond)
@@ -567,7 +565,6 @@ func (rf *Raft) sendHeartbeats() {
 			args.Entries = rf.log[rf.nextIndex[server] : rf.lastLogIndex+1]
 		}
 
-		// fmt.Printf("%v(role:%v) sending to %v! args:%+v\n", rf.me, rf.role, server, args)
 		go rf.sendAppendEntries(server, args, &AppendEntriesReply{})
 	}
 }
@@ -599,7 +596,6 @@ func (rf *Raft) sendAllRequestVote() {
 }
 
 func (rf *Raft) leaderInitL() {
-	// fmt.Printf("become leader! me:%v\n", rf.me)
 	rf.active = true
 	rf.role = Leader
 	rf.nextIndex = make([]int, len(rf.peers))
