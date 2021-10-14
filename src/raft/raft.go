@@ -622,6 +622,7 @@ func (rf *Raft) leaderInitL() {
 //
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
+	log.SetFlags(log.Lmicroseconds)
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister
