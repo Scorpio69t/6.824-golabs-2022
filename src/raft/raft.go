@@ -340,12 +340,22 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		log.Printf("%v | AppendEntries | rewrite rf.log[%v] from %v to %v\n", rf.me, args.PrevLogIndex+1+i, rf.log[args.PrevLogIndex+1+i], args.Entries[i])
 		rf.log[args.PrevLogIndex+1+i] = args.Entries[i]
 	}
+	if i != 0 {
+		rf.lastLogIndex = args.PrevLogIndex + i
+	}
+
 	if i < len(args.Entries) {
+		for j := rf.lastLogIndex + 1; j < len(rf.log) && i < len(args.Entries); i, j = i+1, j+1 {
+			log.Printf("%v | AppendEntries | rewrite stale rf.log[%v] from %v to %v\n", rf.me, j, rf.log[j], args.Entries[i])
+			rf.log[j] = args.Entries[i]
+			rf.lastLogIndex++
+		}
 		log.Printf("%v | AppendEntries | append rf.log, entries:%v\n", rf.me, args.Entries[i:len(args.Entries)])
 		rf.log = append(rf.log, args.Entries[i:len(args.Entries)]...)
+		rf.lastLogIndex += len(args.Entries) - i
 	}
+	log.Printf("%v | AppendEntries | current logs:%+v\n", rf.me, rf.log)
 	rf.active = true
-	rf.lastLogIndex = args.PrevLogIndex + len(args.Entries)
 	rf.lastLogTerm = args.Term
 
 	if args.LeaderCommit > rf.lastLogIndex {
@@ -471,7 +481,7 @@ func (rf *Raft) killed() bool {
 var (
 	ElectionTimeoutBase float32 = 400
 	ElectionTimeoutRand float32 = 300
-	HeartbeatTimeout            = 50
+	HeartbeatTimeout            = 150
 )
 
 // The ticker go routine starts a new election if this peer hasn't received
