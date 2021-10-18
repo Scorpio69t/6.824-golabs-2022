@@ -435,13 +435,13 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 				rf.VoteFor = -1
 				rf.persistL()
 			} else if reply.ConflitTerm > 0 {
-				log.Printf("%v | sendAppendEntries | send AppendEntries to server %v mismatch, ConflitTerm is %v\n", rf.me, server, reply.ConflitTerm)
+				log.Printf("%v | sendAppendEntries | send AppendEntries to server %v mismatch, ConflitTerm is %v, ConflitIndex is %v\n", rf.me, server, reply.ConflitTerm, reply.ConflitIndex)
 				for i, t := range rf.Log {
 					if t.Term >= reply.ConflitTerm {
-						if rf.nextIndex[server] > i-1 {
-							rf.nextIndex[server] = i - 1
-						} else if rf.nextIndex[server] > reply.ConflitIndex {
+						if rf.nextIndex[server] > reply.ConflitIndex {
 							rf.nextIndex[server] = reply.ConflitIndex
+						} else if rf.nextIndex[server] > i-1 {
+							rf.nextIndex[server] = i - 1
 						} else {
 							rf.nextIndex[server] -= 1
 						}
