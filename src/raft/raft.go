@@ -682,18 +682,20 @@ func (rf *Raft) leaderInitL() {
 	}
 	rf.matchIndex = make([]int, len(rf.peers))
 
-	rf.LastLogIndex++
-	rf.matchIndex[rf.me] = rf.LastLogIndex
-	rf.LastLogTerm = rf.Term
-	newEntry := &LogEntry{
-		Term: rf.Term,
+	if rf.LastLogIndex != 0 {
+		rf.LastLogIndex++
+		rf.matchIndex[rf.me] = rf.LastLogIndex
+		rf.LastLogTerm = rf.Term
+		newEntry := &LogEntry{
+			Term: rf.Term,
+		}
+		if rf.LastLogIndex < len(rf.Log) {
+			rf.Log[rf.LastLogIndex] = newEntry
+		} else {
+			rf.Log = append(rf.Log, newEntry)
+		}
+		rf.persistL()
 	}
-	if rf.LastLogIndex < len(rf.Log) {
-		rf.Log[rf.LastLogIndex] = newEntry
-	} else {
-		rf.Log = append(rf.Log, newEntry)
-	}
-	rf.persistL()
 }
 
 //
