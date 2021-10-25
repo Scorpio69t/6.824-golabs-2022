@@ -760,6 +760,7 @@ func (rf *Raft) leaderInitL() {
 		rf.matchIndex[i] = rf.Offset
 	}
 
+	/** no-op
 	if rf.LastLogIndex != 0 {
 		rf.LastLogIndex++
 		rf.matchIndex[rf.me] = rf.LastLogIndex
@@ -775,6 +776,7 @@ func (rf *Raft) leaderInitL() {
 		}
 		rf.persistL()
 	}
+	**/
 }
 
 //
