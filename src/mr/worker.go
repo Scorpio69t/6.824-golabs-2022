@@ -37,40 +37,25 @@ func Worker(mapf func(string, string) []KeyValue,
 	for {
 		reply, ok := CallGetTask()
 		if !ok {
-			fmt.Printf("CallGetWork fucked.")
 			return
 		}
 		switch reply.TaskType {
 		case TaskTypeOff:
-			fmt.Printf("Work done.")
 			return
 		case TaskTypeMap:
 			intermediateFileNames, ok := doMap(reply.JobId, reply.TaskId, reply.Content[0], reply.NReduce, mapf)
 			if !ok {
-				fmt.Printf("mapf fucked.")
 				break
 			}
-			fmt.Printf("doMap done. Calling MapTaskDone.\n")
-			_, ok = CallMapTaskDone(reply.TaskId, intermediateFileNames)
-			if !ok {
-				fmt.Printf("CallMapTaskDone fucked.")
-			}
+			CallMapTaskDone(reply.TaskId, intermediateFileNames)
 		case TaskTypeReduce:
 			outputFileName, ok := doReduce(reply.JobId, reply.TaskId, reply.ReduceTaskIndex, reply.Content, reducef)
 			if !ok {
-				fmt.Printf("reducef fucked.\n")
 				break
 			}
-			fmt.Printf("doReduce done. Calling ReduceTaskDone.\n")
-			_, ok = CallReduceTaskDone(reply.TaskId, outputFileName)
-			if !ok {
-				fmt.Printf("CallReduceTaskDone fucked.")
-			}
+			CallReduceTaskDone(reply.TaskId, outputFileName)
 		case TaskTypeWait:
-			fmt.Printf("No work to do. Worker waits.\n")
 			time.Sleep(10 * time.Second)
-		default:
-			fmt.Printf("WorkType wrong.")
 		}
 	}
 }
@@ -92,13 +77,10 @@ func doMap(jobId string, mapTaskId string, splitName string, nReduce int64,
 	split.Close()
 	kva := mapf(splitName, string(content))
 
-	fmt.Println("mapf done.")
-
 	intermediateFiles := make([]*os.File, 0)
 	for _, fileName := range intermediateFileNames {
 		file, err := os.Create(fileName)
 		if err != nil {
-			fmt.Printf("%+v", err)
 			return nil, false
 		}
 		intermediateFiles = append(intermediateFiles, file)
@@ -150,7 +132,6 @@ func doReduce(jobId string, reduceTaskId string, index int64, intermidiateFileNa
 	outputFileName := fmt.Sprintf("mr-out-%v.%s.tmp", index, reduceTaskId)
 	outputFile, err := os.Create(outputFileName)
 	if err != nil {
-		fmt.Printf("%+v", err)
 		return "", false
 	}
 	fmt.Fprintf(outputFile, "%s", output)
@@ -208,10 +189,5 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	defer c.Close()
 
 	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
-	}
-
-	fmt.Println(err)
-	return false
+	return err == nil
 }

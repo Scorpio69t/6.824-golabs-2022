@@ -224,13 +224,11 @@ func (c *Coordinator) mapMoniter() {
 		}
 		c.L.Unlock()
 		if !rolling {
-			fmt.Printf("mapMonitor: map finish.\n")
 			c.L.Lock()
 			c.CoordinatorState = CoordinatorStateReducing
 			c.L.Unlock()
 			break
 		}
-		fmt.Printf("mapMonitor: map still running.\n")
 		time.Sleep(10 * time.Second)
 	}
 }
@@ -250,13 +248,11 @@ func (c *Coordinator) reduceMoniter() {
 		}
 		c.L.Unlock()
 		if !rolling {
-			fmt.Printf("reduceMonitor: reduce finish.\n")
 			c.L.Lock()
 			c.CoordinatorState = CoordinatorStateFinished
 			c.L.Unlock()
 			break
 		}
-		fmt.Printf("reduceMonitor: reduce still running.\n")
 		time.Sleep(10 * time.Second)
 	}
 }
